@@ -1,0 +1,136 @@
+---
+title: "Proyecto final Series de tiempo"
+author: "Mauricio Martinez Ulloa, Santiago Reyes Castillo, Andrea Santoyo Vega"
+format: 
+  revealjs: 
+    smaller: true
+    scrollable: true
+    theme: league
+    slide-number: true
+    transition: slide
+    embed-resources: true
+---
+
+## pkgs
+
+```{r}
+#| message: false
+#| warning: false
+#| echo: true
+
+library(tidyverse)
+library(fpp3)
+library(forecast)
+library(prophet)
+```
+
+## Datos
+
+### Importación
+
+```{r}
+train <- read_csv("train.csv")
+train
+```
+## Convertir a tsibble
+
+
+```{r}
+#| echo: true  
+
+train_tsbl <- train |> 
+  as_tsibble(index = date, key = c(store_nbr, family)) 
+
+train_tsbl
+```
+
+
+```{r}
+train_tsbl |> 
+  has_gaps() |> 
+  filter(.gaps == FALSE)
+```
+
+```{r}
+cerrado <- train_tsbl |> 
+  count_gaps(.full = TRUE) |> 
+  distinct(.from)
+
+cerrado
+```
+
+## Tssible final (train)
+
+```{r}
+#| echo: true
+
+train_tsbl <- train_tsbl |> 
+  fill_gaps(.full = TRUE, 
+            sales = 0L, 
+            onpromotion = 0L)
+
+train_tsbl
+```
+
+## Modelo ETS (mejor resultado)
+
+```{r}
+#| echo: true
+
+tictoc::tic()
+fit_ETS <- train_tsbl |> 
+  model(
+    ETS = ETS(sales ~ error("A") + trend("Ad") + season("A"))
+  )
+tictoc::toc()
+
+
+glance(fit_ETS)
+
+```
+
+## Genración de pronóstico
+
+```{r}
+#| echo: true
+
+tictoc::tic()
+
+fcst_ets <- fit_ETS |> 
+  forecast(h = 16)
+ 
+tictoc::toc()
+
+fcst_ets
+```
+
+## Kaggle
+### Cargando el test
+
+```{r}
+#| echo: true
+
+test <- read_csv("test.csv")
+test
+```
+
+### Generando archivo de carga
+
+```{r}
+#| echo: true
+
+submission <- fcst_ets |> 
+  left_join(test, by = c("date", "store_nbr", "family")) |> 
+  as_tibble() |> 
+  select(id, .mean) |> 
+  rename(sales = .mean)
+submission
+
+submission |> 
+  write_csv("submission.csv")
+```
+
+
+# Conclusión
+Básicamente los mejores modelos que obtuvimos siempre incluían ETS dentro de la combinación, o solo el ETS con los parámetros indicados. Consideramos que esto se debe a que individualmente la mayoría de las series se adaptaban bien a este modelo, a pesar de que con parámetros específicos para cada serie, sin duda hubiera sido mejor. Creemos que el ETS se adapta de buena forma, porque al ser ventas de tiendas los datos que estamos utilizando, suelen tener una tendencia, e incluso una estacionalidad que se va repitiendo cada cierto tiempo por las épocas del año. Este modelo al capturar tanto tendencia como estacionalidad, y poder manejar tanto errores como datos faltantes, creímos desde un inicio que podría dar buenos resultados, y fue el que se terminó adaptando mejor.
+
